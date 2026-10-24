@@ -244,7 +244,161 @@ Open for Phase 2: Lua doubles are exact only up to 2^53 (~9e15). Epoch nanos (~1
 
 ---
 
-## 5. Dependencies
+## 5. Class diagram
+
+```mermaid
+classDiagram
+    direction TB
+
+    class RateLimiter {
+        <<interface>>
+        +tryAcquire(String key, long permits) Decision
+    }
+
+    class DefaultRateLimiter {
+        -Rule rule
+        -RateLimitStore store
+        -TimeSource timeSource
+        +DefaultRateLimiter(Rule rule, RateLimitStore store, TimeSource timeSource)
+        +tryAcquire(String key, long permits) Decision
+    }
+
+    class RateLimitStore {
+        <<interface>>
+        +evaluate(String key, Rule rule, long permits, long currentTimeNanos) CompletionStage
+        +supportedAlgorithms() Set
+    }
+
+    class InMemoryTokenBucketStore {
+        -ConcurrentHashMap buckets
+        +evaluate(String key, Rule rule, long permits, long currentTimeNanos) CompletionStage
+        +supportedAlgorithms() Set
+    }
+
+    class TimeSource {
+        <<interface>>
+        +currentTimeNanos() long
+    }
+
+    class SystemTimeSource {
+        +currentTimeNanos() long
+    }
+
+    class FakeTimeSource {
+        <<test>>
+        -long currentTimeNanos
+        ~set(Duration sinceStart) void
+        ~advance(Duration d) void
+    }
+
+    class TokenBucket {
+        <<package-private>>
+        ~compute(BucketState state, Rule rule, long permits, long currentTimeNanos)$ Result
+        -tokensEarnedIn(long elapsedNanos, Rule rule)$ double
+        -timeToEarn(double tokens, Rule rule)$ long
+    }
+
+    class Result {
+        <<nested in TokenBucket>>
+        -BucketState newState
+        -Decision decision
+        ~newState() BucketState
+        ~decision() Decision
+    }
+
+    class BucketState {
+        <<package-private>>
+        -double tokens
+        -long lastUpdatedNanos
+        ~tokens() double
+        ~lastUpdatedNanos() long
+    }
+
+    class Rule {
+        -Algorithm algorithm
+        -long capacity
+        -long tokensPerRefill
+        -long refillIntervalNanos
+        -Rule(Algorithm algorithm, long capacity, long tokensPerRefill, long refillIntervalNanos)
+        +tokenBucket(long capacity, long tokensPerRefill, Duration refillInterval)$ Rule
+        +algorithm() Algorithm
+        +capacity() long
+        +tokensPerRefill() long
+        +refillIntervalNanos() long
+    }
+
+    class Decision {
+        +long NEVER$
+        -boolean allowed
+        -long remaining
+        -long limit
+        -long retryAfterNanos
+        -long timeUntilFullNanos
+        +allowed() boolean
+        +remaining() long
+        +limit() long
+        +retryAfterNanos() long
+        +timeUntilFullNanos() long
+    }
+
+    class Algorithm {
+        <<enumeration>>
+        TOKEN_BUCKET
+    }
+
+    RateLimiter <|.. DefaultRateLimiter : implements
+    RateLimitStore <|.. InMemoryTokenBucketStore : implements
+    TimeSource <|.. SystemTimeSource : implements
+    TimeSource <|.. FakeTimeSource : implements
+
+    DefaultRateLimiter o-- Rule : has
+    DefaultRateLimiter o-- RateLimitStore : has
+    DefaultRateLimiter o-- TimeSource : has
+
+    InMemoryTokenBucketStore "1" *-- "0..*" BucketState : one per key
+    InMemoryTokenBucketStore ..> TokenBucket : uses
+
+    TokenBucket ..> Result : returns
+    Result *-- BucketState
+    Result *-- Decision
+    TokenBucket ..> Rule : reads
+
+    Rule --> Algorithm
+    RateLimiter ..> Decision : returns
+    RateLimitStore ..> Decision : returns
+```
+
+`buckets` is a `ConcurrentHashMap<String, AtomicReference<BucketState>>`: one entry per key.
+`RateLimitStore.evaluate` returns `CompletionStage<Decision>`; `supportedAlgorithms` returns `Set<Algorithm>`.
+`equals`, `hashCode` and `toString` on `Rule` and `Decision` are omitted from the diagram.
+
+### Notation
+
+| Symbol | Meaning |
+|---|---|
+| `+` / `-` / `~` | public / private / package-private |
+| `$` | static |
+| `<\|..` (dotted line, hollow triangle) | implements an interface |
+| `o--` (hollow diamond) | has a field referencing it; the object is passed in from outside |
+| `*--` (filled diamond) | owns it; created and held internally |
+| `..>` (dotted arrow) | uses: calls or returns it, keeps no field |
+| `-->` (solid arrow) | has a field of that type |
+
+### Relationships
+
+| From | Relation | To |
+|---|---|---|
+| `DefaultRateLimiter` | implements | `RateLimiter` |
+| `DefaultRateLimiter` | has | `Rule`, `RateLimitStore`, `TimeSource` |
+| `SystemTimeSource`, `FakeTimeSource` | implement | `TimeSource` |
+| `InMemoryTokenBucketStore` | implements | `RateLimitStore` |
+| `InMemoryTokenBucketStore` | owns many (one per key) | `BucketState` |
+| `InMemoryTokenBucketStore` | uses | `TokenBucket.compute` |
+| `TokenBucket` | returns | `Result` (new `BucketState` + `Decision`) |
+| `TokenBucket` | reads | `Rule` |
+| `Rule` | has | `Algorithm` |
+
+### Dependency direction
 
 ```
              DefaultRateLimiter
@@ -261,6 +415,8 @@ Open for Phase 2: Lua doubles are exact only up to 2^53 (~9e15). Epoch nanos (~1
 
 Nothing points upward. `TokenBucket` depends only on the value classes.
 `RateLimiter` holds no maps or counters; all bucket state lives in the store.
+Phase 2 adds one class, `RedisTokenBucketStore implements RateLimitStore`, beside
+`InMemoryTokenBucketStore`. Nothing else in the diagram changes.
 
 ---
 
