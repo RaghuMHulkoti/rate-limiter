@@ -14,7 +14,7 @@ Running example: **capacity 4, refill 1 token per second, bucket starts full.**
 1. A caller asks: "can key `X` take `N` permits now?"
 2. Each key has its own bucket.
 3. A bucket holds at most `capacity` tokens.
-4. Tokens refill at `refillTokens` per `refillPeriod` (e.g. 1 per second).
+4. Tokens refill at `tokensPerRefill` per `refillInterval` (e.g. 1 per second).
 5. If the bucket has at least `N` tokens: allow, and remove `N` tokens.
 6. Otherwise: reject, and report how long to wait before retrying.
 7. The answer also reports how many tokens remain (needed for HTTP headers later).
@@ -83,9 +83,9 @@ Ask: *who has the data needed to do this action?*
 | Verb | Owner | Method |
 |---|---|---|
 | acquire | `RateLimiter` | `tryAcquire(key, permits)` |
-| read time | `TimeSource` | `nowNanos()` |
-| evaluate, load, create, save | `RateLimitStore` | `evaluate(key, rule, permits, nowNanos)` |
-| refill, allow, remove, reject | `TokenBucket` | `compute(state, rule, permits, nowNanos)` |
+| read time | `TimeSource` | `currentTimeNanos()` |
+| evaluate, load, create, save | `RateLimitStore` | `evaluate(key, rule, permits, currentTimeNanos)` |
+| refill, allow, remove, reject | `TokenBucket` | `compute(state, rule, permits, currentTimeNanos)` |
 | validate rule | `Rule` | compact constructor |
 
 The math (`TokenBucket`) is separate from the store because they are two jobs:
@@ -131,19 +131,19 @@ enum Algorithm { TOKEN_BUCKET }
 public final class Rule {
     private final Algorithm algorithm;
     private final long capacity;           // max tokens, e.g. 4
-    private final long refillTokens;       // e.g. 1
-    private final long refillPeriodNanos;  // e.g. 1_000_000_000 (1 s)
+    private final long tokensPerRefill;       // e.g. 1
+    private final long refillIntervalNanos;  // e.g. 1_000_000_000 (1 s)
 
-    private Rule(Algorithm algorithm, long capacity, long refillTokens, long refillPeriodNanos);
+    private Rule(Algorithm algorithm, long capacity, long tokensPerRefill, long refillIntervalNanos);
     // Constructor rejects: algorithm == null, capacity <= 0,
-    // refillTokens <= 0, refillPeriodNanos <= 0.
+    // tokensPerRefill <= 0, refillIntervalNanos <= 0.
 
-    public static Rule tokenBucket(long capacity, long refillTokens, Duration refillPeriod);
+    public static Rule tokenBucket(long capacity, long tokensPerRefill, Duration refillInterval);
 
     public Algorithm algorithm();
     public long capacity();
-    public long refillTokens();
-    public long refillPeriodNanos();
+    public long tokensPerRefill();
+    public long refillIntervalNanos();
 
     @Override public boolean equals(Object o);
     @Override public int hashCode();
@@ -155,16 +155,16 @@ public final class Decision {
     private final long remaining;        // whole tokens left after this request
     private final long limit;            // = rule.capacity()
     private final long retryAfterNanos;  // 0 when allowed
-    private final long resetAfterNanos;  // time until the bucket is full again
+    private final long timeUntilFullNanos;  // time until the bucket is full again
 
     public Decision(boolean allowed, long remaining, long limit,
-                    long retryAfterNanos, long resetAfterNanos);
+                    long retryAfterNanos, long timeUntilFullNanos);
 
     public boolean allowed();
     public long remaining();
     public long limit();
     public long retryAfterNanos();
-    public long resetAfterNanos();
+    public long timeUntilFullNanos();
 
     @Override public boolean equals(Object o);
     @Override public int hashCode();
@@ -173,23 +173,23 @@ public final class Decision {
 
 final class BucketState {                 // package-private
     private final double tokens;
-    private final long lastRefillNanos;
+    private final long lastUpdatedNanos;
 
-    BucketState(double tokens, long lastRefillNanos);
+    BucketState(double tokens, long lastUpdatedNanos);
 
     double tokens();
-    long lastRefillNanos();
+    long lastUpdatedNanos();
     // No equals/hashCode needed: CAS compares references, not values.
 }
 
 // --- Interfaces ---
 
 interface TimeSource {
-    long nowNanos();
+    long currentTimeNanos();
 }
 
 interface RateLimitStore {
-    CompletionStage<Decision> evaluate(String key, Rule rule, long permits, long nowNanos);
+    CompletionStage<Decision> evaluate(String key, Rule rule, long permits, long currentTimeNanos);
     Set<Algorithm> supportedAlgorithms();
 }
 
@@ -202,7 +202,7 @@ interface RateLimiter {
 final class SystemTimeSource implements TimeSource { }   // wraps System.nanoTime()
 
 final class TokenBucket {                                 // pure math, no fields
-    static Result compute(BucketState state, Rule rule, long permits, long nowNanos);
+    static Result compute(BucketState state, Rule rule, long permits, long currentTimeNanos);
 
     static final class Result {
         private final BucketState newState;
@@ -269,7 +269,7 @@ Nothing points upward. `TokenBucket` depends only on the value classes.
 ```
 Caller → DefaultRateLimiter.tryAcquire("user42", 1)
   0. permits <= 0 → IllegalArgumentException
-  1. now = timeSource.nowNanos()
+  1. now = timeSource.currentTimeNanos()
   2. store.evaluate("user42", rule, 1, now)
        3. ref = buckets.computeIfAbsent("user42", k -> new AtomicReference<>(null))
        4. old = ref.get()                          // null on first request
@@ -284,18 +284,18 @@ Caller → DefaultRateLimiter.tryAcquire("user42", 1)
 
 ### Inside `TokenBucket.compute`
 
-1. No state yet: start full (`tokens = capacity`, `lastRefill = now`).
-2. `elapsed = now − lastRefill`. If negative (clock went backwards), use 0.
-3. `tokens = min(capacity, tokens + elapsed × refillTokens ÷ refillPeriodNanos)`.
+1. No state yet: start full (`tokens = capacity`, `lastUpdated = now`).
+2. `elapsed = now − lastUpdated`. If negative (clock went backwards), use 0.
+3. `tokens = min(capacity, tokens + elapsed × tokensPerRefill ÷ refillIntervalNanos)`.
 4. If `tokens ≥ permits`: allowed, `tokens −= permits`.
 5. Else: rejected, `retryAfter` = time to earn the missing `permits − tokens`
    (`Decision.NEVER` when `permits > capacity`).
-6. Allowed: return a new state (`tokens`, `lastRefill = now`) plus the decision.
+6. Allowed: return a new state (`tokens`, `lastUpdated = now`) plus the decision.
    Rejected: return the **same** state instance, so the store skips the write.
-   Recomputing later from the older `lastRefill` gives the same token count,
+   Recomputing later from the older `lastUpdated` gives the same token count,
    and rejections under contention cause no CAS traffic.
 
-Guard: with a very long idle gap, `elapsed × refillTokens` can be huge. Clamp `elapsed`
+Guard: with a very long idle gap, `elapsed × tokensPerRefill` can be huge. Clamp `elapsed`
 to the time needed to fill the bucket before multiplying.
 
 ### Worked example (capacity 4, 1 token/s)

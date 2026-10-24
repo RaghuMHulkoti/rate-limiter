@@ -12,7 +12,7 @@ public final class InMemoryTokenBucketStore implements RateLimitStore {
     private final ConcurrentHashMap<String, AtomicReference<BucketState>> buckets = new ConcurrentHashMap<>();
 
     @Override
-    public CompletionStage<Decision> evaluate(String key, Rule rule, long permits, long nowNanos) {
+    public CompletionStage<Decision> evaluate(String key, Rule rule, long permits, long currentTimeNanos) {
         Objects.requireNonNull(key, "key");
         Objects.requireNonNull(rule, "rule");
         if (rule.algorithm() != Algorithm.TOKEN_BUCKET) {
@@ -25,7 +25,7 @@ public final class InMemoryTokenBucketStore implements RateLimitStore {
         AtomicReference<BucketState> ref = buckets.computeIfAbsent(key, k -> new AtomicReference<>());
         while (true) {
             BucketState current = ref.get();
-            TokenBucket.Result result = TokenBucket.compute(current, rule, permits, nowNanos);
+            TokenBucket.Result result = TokenBucket.compute(current, rule, permits, currentTimeNanos);
             if (result.newState() == current || ref.compareAndSet(current, result.newState())) {
                 return CompletableFuture.completedFuture(result.decision());
             }

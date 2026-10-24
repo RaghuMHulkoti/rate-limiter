@@ -5,39 +5,39 @@ final class TokenBucket {
     private TokenBucket() {
     }
 
-    static Result compute(BucketState state, Rule rule, long permits, long nowNanos) {
+    static Result compute(BucketState state, Rule rule, long permits, long currentTimeNanos) {
         double capacity = rule.capacity();
         double tokens;
         if (state == null) {
-            state = new BucketState(capacity, nowNanos);
+            state = new BucketState(capacity, currentTimeNanos);
             tokens = capacity;
         } else {
-            long elapsed = Math.max(0, nowNanos - state.lastRefillNanos());
-            tokens = Math.min(capacity, state.tokens() + tokensFor(elapsed, rule));
+            long elapsed = Math.max(0, currentTimeNanos - state.lastUpdatedNanos());
+            tokens = Math.min(capacity, state.tokens() + tokensEarnedIn(elapsed, rule));
         }
 
         if (tokens >= permits) {
             double left = tokens - permits;
             Decision decision = new Decision(true, (long) left, rule.capacity(),
-                    0, nanosFor(capacity - left, rule));
-            return new Result(new BucketState(left, nowNanos), decision);
+                    0, timeToEarn(capacity - left, rule));
+            return new Result(new BucketState(left, currentTimeNanos), decision);
         }
 
-        long retryAfter = permits > rule.capacity() ? Decision.NEVER : nanosFor(permits - tokens, rule);
+        long retryAfter = permits > rule.capacity() ? Decision.NEVER : timeToEarn(permits - tokens, rule);
         Decision decision = new Decision(false, (long) tokens, rule.capacity(),
-                retryAfter, nanosFor(capacity - tokens, rule));
+                retryAfter, timeToEarn(capacity - tokens, rule));
         return new Result(state, decision);
     }
 
-    private static double tokensFor(long elapsedNanos, Rule rule) {
-        return (double) elapsedNanos * rule.refillTokens() / rule.refillPeriodNanos();
+    private static double tokensEarnedIn(long elapsedNanos, Rule rule) {
+        return (double) elapsedNanos * rule.tokensPerRefill() / rule.refillIntervalNanos();
     }
 
-    private static long nanosFor(double tokens, Rule rule) {
+    private static long timeToEarn(double tokens, Rule rule) {
         if (tokens <= 0) {
             return 0;
         }
-        return (long) Math.ceil(tokens * rule.refillPeriodNanos() / rule.refillTokens());
+        return (long) Math.ceil(tokens * rule.refillIntervalNanos() / rule.tokensPerRefill());
     }
 
     static final class Result {

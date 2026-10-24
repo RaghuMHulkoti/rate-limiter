@@ -4,18 +4,18 @@ import java.time.Duration;
 
 final class FakeTimeSource implements TimeSource {
 
-    private volatile long nowNanos;
+    private volatile long currentTimeNanos;
 
     @Override
-    public long nowNanos() {
-        return nowNanos;
+    public long currentTimeNanos() {
+        return currentTimeNanos;
     }
 
     void set(Duration sinceStart) {
-        nowNanos = sinceStart.toNanos();
+        currentTimeNanos = sinceStart.toNanos();
     }
 
     void advance(Duration d) {
-        nowNanos += d.toNanos();
+        currentTimeNanos += d.toNanos();
     }
 }

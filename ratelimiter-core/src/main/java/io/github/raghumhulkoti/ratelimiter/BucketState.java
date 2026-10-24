@@ -3,23 +3,23 @@ package io.github.raghumhulkoti.ratelimiter;
 final class BucketState {
 
     private final double tokens;
-    private final long lastRefillNanos;
+    private final long lastUpdatedNanos;
 
-    BucketState(double tokens, long lastRefillNanos) {
+    BucketState(double tokens, long lastUpdatedNanos) {
         this.tokens = tokens;
-        this.lastRefillNanos = lastRefillNanos;
+        this.lastUpdatedNanos = lastUpdatedNanos;
     }
 
     double tokens() {
         return tokens;
     }
 
-    long lastRefillNanos() {
-        return lastRefillNanos;
+    long lastUpdatedNanos() {
+        return lastUpdatedNanos;
     }
 
     @Override
     public String toString() {
-        return "BucketState[tokens=" + tokens + ", lastRefillNanos=" + lastRefillNanos + "]";
+        return "BucketState[tokens=" + tokens + ", lastUpdatedNanos=" + lastUpdatedNanos + "]";
     }
 }

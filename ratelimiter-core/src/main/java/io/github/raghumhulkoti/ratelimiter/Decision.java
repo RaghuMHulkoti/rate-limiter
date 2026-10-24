@@ -10,14 +10,14 @@ public final class Decision {
     private final long remaining;
     private final long limit;
     private final long retryAfterNanos;
-    private final long resetAfterNanos;
+    private final long timeUntilFullNanos;
 
-    public Decision(boolean allowed, long remaining, long limit, long retryAfterNanos, long resetAfterNanos) {
+    public Decision(boolean allowed, long remaining, long limit, long retryAfterNanos, long timeUntilFullNanos) {
         this.allowed = allowed;
         this.remaining = remaining;
         this.limit = limit;
         this.retryAfterNanos = retryAfterNanos;
-        this.resetAfterNanos = resetAfterNanos;
+        this.timeUntilFullNanos = timeUntilFullNanos;
     }
 
     public boolean allowed() {
@@ -36,8 +36,8 @@ public final class Decision {
         return retryAfterNanos;
     }
 
-    public long resetAfterNanos() {
-        return resetAfterNanos;
+    public long timeUntilFullNanos() {
+        return timeUntilFullNanos;
     }
 
     @Override
@@ -52,12 +52,12 @@ public final class Decision {
                 && remaining == other.remaining
                 && limit == other.limit
                 && retryAfterNanos == other.retryAfterNanos
-                && resetAfterNanos == other.resetAfterNanos;
+                && timeUntilFullNanos == other.timeUntilFullNanos;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(allowed, remaining, limit, retryAfterNanos, resetAfterNanos);
+        return Objects.hash(allowed, remaining, limit, retryAfterNanos, timeUntilFullNanos);
     }
 
     @Override
@@ -66,6 +66,6 @@ public final class Decision {
                 + ", remaining=" + remaining
                 + ", limit=" + limit
                 + ", retryAfterNanos=" + retryAfterNanos
-                + ", resetAfterNanos=" + resetAfterNanos + "]";
+                + ", timeUntilFullNanos=" + timeUntilFullNanos + "]";
     }
 }

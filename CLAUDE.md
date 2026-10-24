@@ -45,28 +45,33 @@ What each module does:
 - **spring-boot-starter**: `@RateLimit`, aspect/filter that calls `RateLimiter` and returns 429 with headers, auto-configuration, `@ConfigurationProperties`. No algorithm logic.
 - **demo-app**: endpoints using `@RateLimit`; run 2–3 instances + Redis in Docker Compose for load tests.
 
-## Core API shapes (to be designed and implemented by Raghav)
+## Core API shapes (implemented in M1–M2; LLD in `docs/lld/token-bucket.md`)
 
 ```java
 interface RateLimiter       { Decision tryAcquire(String key, long permits); }
-interface RateLimitStore    { /* evaluate(key, rule, permits, now) → Decision */ Set<Algorithm> supportedAlgorithms(); }
-interface TimeSource        { long nowNanos(); }   // fake in tests, Redis TIME later
-interface RateLimitListener { void onAllowed(String key, Rule r); void onRejected(String key, Rule r); void onFallback(String key, Throwable t); }
-record Rule(...)            // value object, validated in compact constructor
-record Decision(...)        // allowed, remaining, reset time, retry-after
+interface RateLimitStore    { CompletionStage<Decision> evaluate(String key, Rule rule, long permits, long currentTimeNanos);
+                              Set<Algorithm> supportedAlgorithms(); }
+interface TimeSource        { long currentTimeNanos(); }   // monotonic, not wall clock; fake in tests, Redis TIME later
+interface RateLimitListener { void onAllowed(String key, Rule r); void onRejected(String key, Rule r); void onFallback(String key, Throwable t); }   // not built yet
+final class Rule            // capacity, tokensPerRefill, refillIntervalNanos; validated in private ctor
+                            // behind Rule.tokenBucket(capacity, tokensPerRefill, Duration refillInterval)
+final class Decision        // allowed, remaining, limit, retryAfterNanos, timeUntilFullNanos; Decision.NEVER = Long.MAX_VALUE
 enum Algorithm { TOKEN_BUCKET, ... }
 ```
+
+Value objects are plain `final` classes with `private final` fields, not records (Raghav's choice).
+Names carry their unit as a suffix (`...Nanos`) wherever the type is a bare `long`.
 
 Extracting a key from an HTTP request is the adapter's job, not core's.
 
 ## Phase 1 rules (so Phase 2 doesn't need a rewrite)
 
 1. All bucket state lives in the store. `RateLimiter` keeps no maps or counters of its own.
-2. The store interface takes key + rule + now and returns a `Decision`. No `AtomicLong`, `ConcurrentHashMap`, or `synchronized` in the interface; those stay inside `InMemoryTokenBucketStore`.
+2. The store interface takes key + rule + permits + current time and returns a `Decision`. No `AtomicLong`, `ConcurrentHashMap`, or `synchronized` in the interface; those stay inside `InMemoryTokenBucketStore`.
 3. Time comes from `TimeSource`, never `System.nanoTime()` directly.
 4. `Rule` uses plain numeric time units internally (Lua needs plain numbers).
-5. Token math is a small pure function `(state, now, rule) → (newState, decision)`, easy to port to Lua line by line.
-6. Token bucket state per key should be two fields (tokens, last refill time). In-memory: `AtomicReference<State>` with an immutable record for v1 (packing into one `long` is a later optimization). Two separate atomics race.
+5. Token math is a small pure function `TokenBucket.compute(state, rule, permits, currentTimeNanos) → (newState, decision)`, easy to port to Lua line by line.
+6. Token bucket state per key is two fields: `BucketState(tokens, lastUpdatedNanos)`. In-memory: `AtomicReference<BucketState>` holding one immutable object (packing into one `long` is a later optimization). Two separate atomics race.
 
 Self-test: when Redis is added, if any class in `core` other than a new store needs editing, a rule was broken.
 
@@ -89,13 +94,16 @@ Don't start a milestone until the previous one meets its "done when". Commit aft
 
 Suggested pacing: weekend 1 = M1–M2; weekend 2 = M3–M4; weekend 3 = M5 + starter + demo; weekend 4 = multi-instance load test + README. **Minimum resume-ready cut: M1–M5 + Spring starter + one multi-instance benchmark.**
 
-## M1 decisions Raghav must make (open)
+## M1 decisions (made)
 
-- `Rule` representation: capacity + refill rate, or refill tokens + refill period? Justify.
-- Units: nanos, millis, or `Duration` at the API boundary? Don't mix internally.
-- Validation location: record compact constructor, builder, or factory?
-- `Decision` contents: everything the HTTP layer will need for `X-RateLimit-*` and `Retry-After`.
-- `groupId`: a real one, e.g. `io.github.raghumhulkoti`.
+- `Rule` representation: capacity + `tokensPerRefill` per `refillInterval` (an exact integer ratio, not a `double` rate).
+- Units: `Duration` at the API boundary, `long` nanos internally.
+- Validation location: private constructor behind the `Rule.tokenBucket(...)` factory.
+- `Decision` contents: `allowed`, `remaining`, `limit`, `retryAfterNanos`, `timeUntilFullNanos`.
+- Tokens are `double` (fractional refill; matches Lua numbers). A rejection returns the same `BucketState` instance, so the store skips the write. `permits > capacity` is rejected with `retryAfterNanos = Decision.NEVER`.
+- `groupId`: `io.github.raghumhulkoti`.
+
+Open: two limiters sharing one store and one key share a bucket, because the store keys only by `key`. Decide: a name on `Rule` (store key = `rule.name() + ":" + key`) or a namespace prefix on `DefaultRateLimiter`.
 
 ## Production features (for later milestones)
 
@@ -138,7 +146,7 @@ Target resume bullet shape:
 
 - Raghav to answer the four algorithm self-checks: token-count formula at time `now` without a background thread; why fixed window can admit ~2× at a boundary; how sliding window counter estimates; why token bucket over sliding log for this project.
 - Raghav to state the dependency direction between core/redis/starter and what breaks if core depended on redis.
-- Next action: M1 (Maven skeleton + core types), then send core types for API review before any algorithm code.
+- M1 and M2 are implemented (token bucket, in-memory store, 21 tests). Next action: resolve the key-namespace open item, then M3 (contract test suite).
 
 ## Repo state
 

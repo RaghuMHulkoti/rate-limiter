@@ -5,7 +5,7 @@ import java.util.concurrent.CompletionStage;
 
 public interface RateLimitStore {
 
-    CompletionStage<Decision> evaluate(String key, Rule rule, long permits, long nowNanos);
+    CompletionStage<Decision> evaluate(String key, Rule rule, long permits, long currentTimeNanos);
 
     Set<Algorithm> supportedAlgorithms();
 }

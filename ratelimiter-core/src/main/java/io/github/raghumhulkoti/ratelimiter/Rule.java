@@ -7,33 +7,33 @@ public final class Rule {
 
     private final Algorithm algorithm;
     private final long capacity;
-    private final long refillTokens;
-    private final long refillPeriodNanos;
+    private final long tokensPerRefill;
+    private final long refillIntervalNanos;
 
-    private Rule(Algorithm algorithm, long capacity, long refillTokens, long refillPeriodNanos) {
+    private Rule(Algorithm algorithm, long capacity, long tokensPerRefill, long refillIntervalNanos) {
         if (algorithm == null) {
             throw new IllegalArgumentException("algorithm must not be null");
         }
         if (capacity <= 0) {
             throw new IllegalArgumentException("capacity must be > 0, was " + capacity);
         }
-        if (refillTokens <= 0) {
-            throw new IllegalArgumentException("refillTokens must be > 0, was " + refillTokens);
+        if (tokensPerRefill <= 0) {
+            throw new IllegalArgumentException("tokensPerRefill must be > 0, was " + tokensPerRefill);
         }
-        if (refillPeriodNanos <= 0) {
-            throw new IllegalArgumentException("refillPeriod must be > 0, was " + refillPeriodNanos + "ns");
+        if (refillIntervalNanos <= 0) {
+            throw new IllegalArgumentException("refillInterval must be > 0, was " + refillIntervalNanos + "ns");
         }
         this.algorithm = algorithm;
         this.capacity = capacity;
-        this.refillTokens = refillTokens;
-        this.refillPeriodNanos = refillPeriodNanos;
+        this.tokensPerRefill = tokensPerRefill;
+        this.refillIntervalNanos = refillIntervalNanos;
     }
 
-    public static Rule tokenBucket(long capacity, long refillTokens, Duration refillPeriod) {
-        if (refillPeriod == null) {
-            throw new IllegalArgumentException("refillPeriod must not be null");
+    public static Rule tokenBucket(long capacity, long tokensPerRefill, Duration refillInterval) {
+        if (refillInterval == null) {
+            throw new IllegalArgumentException("refillInterval must not be null");
         }
-        return new Rule(Algorithm.TOKEN_BUCKET, capacity, refillTokens, refillPeriod.toNanos());
+        return new Rule(Algorithm.TOKEN_BUCKET, capacity, tokensPerRefill, refillInterval.toNanos());
     }
 
     public Algorithm algorithm() {
@@ -44,12 +44,12 @@ public final class Rule {
         return capacity;
     }
 
-    public long refillTokens() {
-        return refillTokens;
+    public long tokensPerRefill() {
+        return tokensPerRefill;
     }
 
-    public long refillPeriodNanos() {
-        return refillPeriodNanos;
+    public long refillIntervalNanos() {
+        return refillIntervalNanos;
     }
 
     @Override
@@ -62,20 +62,20 @@ public final class Rule {
         }
         return algorithm == other.algorithm
                 && capacity == other.capacity
-                && refillTokens == other.refillTokens
-                && refillPeriodNanos == other.refillPeriodNanos;
+                && tokensPerRefill == other.tokensPerRefill
+                && refillIntervalNanos == other.refillIntervalNanos;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(algorithm, capacity, refillTokens, refillPeriodNanos);
+        return Objects.hash(algorithm, capacity, tokensPerRefill, refillIntervalNanos);
     }
 
     @Override
     public String toString() {
         return "Rule[algorithm=" + algorithm
                 + ", capacity=" + capacity
-                + ", refillTokens=" + refillTokens
-                + ", refillPeriodNanos=" + refillPeriodNanos + "]";
+                + ", tokensPerRefill=" + tokensPerRefill
+                + ", refillIntervalNanos=" + refillIntervalNanos + "]";
     }
 }

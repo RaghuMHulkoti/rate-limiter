@@ -14,8 +14,8 @@ class RuleTest {
 
         assertThat(rule.algorithm()).isEqualTo(Algorithm.TOKEN_BUCKET);
         assertThat(rule.capacity()).isEqualTo(100);
-        assertThat(rule.refillTokens()).isEqualTo(10);
-        assertThat(rule.refillPeriodNanos()).isEqualTo(1_000_000_000L);
+        assertThat(rule.tokensPerRefill()).isEqualTo(10);
+        assertThat(rule.refillIntervalNanos()).isEqualTo(1_000_000_000L);
     }
 
     @Test
@@ -31,14 +31,14 @@ class RuleTest {
     void rejectsNonPositiveRefillTokens() {
         assertThatThrownBy(() -> Rule.tokenBucket(10, 0, Duration.ofSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("refillTokens");
+                .hasMessageContaining("tokensPerRefill");
     }
 
     @Test
     void rejectsNonPositiveRefillPeriod() {
         assertThatThrownBy(() -> Rule.tokenBucket(10, 1, Duration.ZERO))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("refillPeriod");
+                .hasMessageContaining("refillInterval");
         assertThatThrownBy(() -> Rule.tokenBucket(10, 1, Duration.ofSeconds(-1)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
