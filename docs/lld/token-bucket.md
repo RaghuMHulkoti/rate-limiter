@@ -69,11 +69,11 @@ Rule of thumb: a noun with its own data or behavior becomes a class. A plain num
 | permits | `long` | Just a number |
 | time | `TimeSource` (interface) | Must be replaceable by a fake clock in tests |
 | store | `RateLimitStore` (interface) + `InMemoryTokenBucketStore` | In-memory now, Redis later |
-| bucket | `BucketState` (record) | Holds per-key data |
+| bucket | `BucketState` (immutable class) | Holds per-key data |
 | tokens, last refill time | fields of `BucketState` | Plain numbers |
-| rule | `Rule` (record) | Groups capacity + refill tokens + refill period |
+| rule | `Rule` (immutable class) | Groups capacity + refill tokens + refill period |
 | capacity, refill tokens, refill period | fields of `Rule` | Plain numbers |
-| decision | `Decision` (record) | Groups allowed + remaining + retry-after |
+| decision | `Decision` (immutable class) | Groups allowed + remaining + retry-after |
 | retry-after | field of `Decision` | Plain number |
 
 ### Assigning verbs to owners
@@ -123,27 +123,64 @@ Fields and signatures only. Bodies are implementation work.
 
 ```java
 // --- Value objects ---
+// Plain final classes, not records. Every field is private final, there are
+// no setters, and each class must override equals/hashCode/toString itself.
 
 enum Algorithm { TOKEN_BUCKET }
 
-record Rule(Algorithm algorithm,
-            long capacity,          // max tokens, e.g. 4
-            long refillTokens,      // e.g. 1
-            long refillPeriodNanos) // e.g. 1_000_000_000 (1 s)
-{
-    // Compact constructor rejects: algorithm == null, capacity <= 0,
+public final class Rule {
+    private final Algorithm algorithm;
+    private final long capacity;           // max tokens, e.g. 4
+    private final long refillTokens;       // e.g. 1
+    private final long refillPeriodNanos;  // e.g. 1_000_000_000 (1 s)
+
+    private Rule(Algorithm algorithm, long capacity, long refillTokens, long refillPeriodNanos);
+    // Constructor rejects: algorithm == null, capacity <= 0,
     // refillTokens <= 0, refillPeriodNanos <= 0.
-    static Rule tokenBucket(long capacity, long refillTokens, Duration refillPeriod);
+
+    public static Rule tokenBucket(long capacity, long refillTokens, Duration refillPeriod);
+
+    public Algorithm algorithm();
+    public long capacity();
+    public long refillTokens();
+    public long refillPeriodNanos();
+
+    @Override public boolean equals(Object o);
+    @Override public int hashCode();
+    @Override public String toString();
 }
 
-record Decision(boolean allowed,
-                long remaining,        // whole tokens left after this request
-                long limit,            // = rule.capacity
-                long retryAfterNanos,  // 0 when allowed
-                long resetAfterNanos)  // time until the bucket is full again
-{}
+public final class Decision {
+    private final boolean allowed;
+    private final long remaining;        // whole tokens left after this request
+    private final long limit;            // = rule.capacity()
+    private final long retryAfterNanos;  // 0 when allowed
+    private final long resetAfterNanos;  // time until the bucket is full again
 
-record BucketState(double tokens, long lastRefillNanos) {}   // package-private
+    public Decision(boolean allowed, long remaining, long limit,
+                    long retryAfterNanos, long resetAfterNanos);
+
+    public boolean allowed();
+    public long remaining();
+    public long limit();
+    public long retryAfterNanos();
+    public long resetAfterNanos();
+
+    @Override public boolean equals(Object o);
+    @Override public int hashCode();
+    @Override public String toString();
+}
+
+final class BucketState {                 // package-private
+    private final double tokens;
+    private final long lastRefillNanos;
+
+    BucketState(double tokens, long lastRefillNanos);
+
+    double tokens();
+    long lastRefillNanos();
+    // No equals/hashCode needed: CAS compares references, not values.
+}
 
 // --- Interfaces ---
 
@@ -166,7 +203,14 @@ final class SystemTimeSource implements TimeSource { }   // wraps System.nanoTim
 
 final class TokenBucket {                                 // pure math, no fields
     static Result compute(BucketState state, Rule rule, long permits, long nowNanos);
-    record Result(BucketState newState, Decision decision) {}
+
+    static final class Result {
+        private final BucketState newState;
+        private final Decision decision;
+        Result(BucketState newState, Decision decision);
+        BucketState newState();
+        Decision decision();
+    }
 }
 
 final class InMemoryTokenBucketStore implements RateLimitStore {
@@ -191,9 +235,10 @@ final class FakeTimeSource implements TimeSource { void advance(Duration d); }
 | Rule shape | capacity + refill tokens per refill period | A rate as a ratio of integers stays exact ("100 per minute" as `double` tokens/s is 1.666…) |
 | Units | `Duration` at the public boundary, `long` nanos internally | Lua has no `Duration`; one internal unit avoids conversion bugs |
 | Token type | `double` | Refill produces fractions (0.3 s = 0.3 tokens); `long` would drop them on every call. Redis Lua numbers are doubles too, so both stores do the same math |
-| Validation | Record compact constructor | An invalid `Rule` cannot exist |
+| Value objects | Plain `final` classes, `private final` fields, no setters | Explicit control over constructors and accessors; immutability is kept by hand instead of by `record` |
+| Validation | Private constructor behind `Rule.tokenBucket(...)` | An invalid `Rule` cannot exist |
 | Times in `Decision` | Relative (retry after N nanos) | `System.nanoTime()` is not a wall clock; the HTTP layer converts to epoch seconds |
-| State per key | One immutable record in one `AtomicReference` | Both fields change atomically together (see §7) |
+| State per key | One immutable `BucketState` object in one `AtomicReference` | Both fields change atomically together (see §7) |
 
 Open for Phase 2: Lua doubles are exact only up to 2^53 (~9e15). Epoch nanos (~1.7e18) exceed this; epoch micros (~1.7e15) do not. The Redis store must work in micros or relative time.
 
@@ -214,7 +259,7 @@ Open for Phase 2: Lua doubles are exact only up to 2^53 (~9e15). Epoch nanos (~1
                       TokenBucket ──► BucketState, Rule, Decision
 ```
 
-Nothing points upward. `TokenBucket` depends only on records.
+Nothing points upward. `TokenBucket` depends only on the value classes.
 `RateLimiter` holds no maps or counters; all bucket state lives in the store.
 
 ---
@@ -230,6 +275,7 @@ Caller → DefaultRateLimiter.tryAcquire("user42", 1)
        4. old = ref.get()                          // null on first request
        5. result = TokenBucket.compute(old, rule, 1, now)
        6. ref.compareAndSet(old, result.newState())
+            skipped when newState == old (rejection: nothing changed)
             failed? → another thread won, go back to 4
        7. return completedFuture(result.decision())
   8. .toCompletableFuture().join()
@@ -242,8 +288,12 @@ Caller → DefaultRateLimiter.tryAcquire("user42", 1)
 2. `elapsed = now − lastRefill`. If negative (clock went backwards), use 0.
 3. `tokens = min(capacity, tokens + elapsed × refillTokens ÷ refillPeriodNanos)`.
 4. If `tokens ≥ permits`: allowed, `tokens −= permits`.
-5. Else: rejected, `retryAfter` = time to earn the missing `permits − tokens`.
-6. Return the new state (`tokens`, `lastRefill = now`) plus the decision.
+5. Else: rejected, `retryAfter` = time to earn the missing `permits − tokens`
+   (`Decision.NEVER` when `permits > capacity`).
+6. Allowed: return a new state (`tokens`, `lastRefill = now`) plus the decision.
+   Rejected: return the **same** state instance, so the store skips the write.
+   Recomputing later from the older `lastRefill` gives the same token count,
+   and rejections under contention cause no CAS traffic.
 
 Guard: with a very long idle gap, `elapsed × refillTokens` can be huge. Clamp `elapsed`
 to the time needed to fill the bucket before multiplying.
@@ -280,7 +330,7 @@ Only one thread's write wins; the loser recomputes from the fresh state and sees
 
 Rules:
 
-- Both fields live in **one** immutable record. Two separate `AtomicLong`s can be
+- Both fields live in **one** immutable object. Two separate `AtomicLong`s can be
   updated half-way by different threads.
 - `compute` always returns a **new** `BucketState` instance, because CAS compares references.
 - Atomics and the map exist only inside `InMemoryTokenBucketStore`. `TokenBucket` stays pure.
@@ -296,8 +346,8 @@ Rules:
 | Worked example stream (§6) | 9 allowed; rejected at 4.1, 4.5, 4.7, 4.9 |
 | Long idle (1 hour) | Tokens = capacity, no overflow |
 | Clock goes backwards | No tokens added |
-| `permits > capacity` | Always rejected; `retryAfter` behavior must be defined |
-| `permits <= 0` | `IllegalArgumentException` from `DefaultRateLimiter` |
+| `permits > capacity` | Always rejected; `retryAfterNanos = Decision.NEVER` (`Long.MAX_VALUE`) |
+| `permits <= 0` | `IllegalArgumentException` from `DefaultRateLimiter` and from the store (negative permits would add tokens) |
 | 100 threads, one key, capacity 10, started together via `CountDownLatch` | Exactly 10 allowed |
 | Two different keys | Independent buckets |
 
