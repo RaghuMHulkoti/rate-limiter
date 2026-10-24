@@ -28,7 +28,7 @@ TODO
 
 ## Algorithms
 
-TODO
+- Token bucket: [low-level design](docs/lld/token-bucket.md)
 
 ## Benchmarks
 
