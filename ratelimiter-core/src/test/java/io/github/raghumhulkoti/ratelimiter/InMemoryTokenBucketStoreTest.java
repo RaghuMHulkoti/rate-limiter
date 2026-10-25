@@ -19,7 +19,7 @@ class InMemoryTokenBucketStoreTest {
 
     @Test
     void concurrentRequestsOnOneKeyNeverExceedCapacity() throws Exception {
-        Rule rule = Rule.tokenBucket(10, 1, Duration.ofHours(1));
+        Rule rule = Rule.tokenBucket("test", 10, 1, Duration.ofHours(1));
         int threads = 100;
         CountDownLatch ready = new CountDownLatch(threads);
         CountDownLatch start = new CountDownLatch(1);
@@ -50,7 +50,7 @@ class InMemoryTokenBucketStoreTest {
 
     @Test
     void keysHaveIndependentBuckets() {
-        Rule rule = Rule.tokenBucket(1, 1, Duration.ofSeconds(1));
+        Rule rule = Rule.tokenBucket("test", 1, 1, Duration.ofSeconds(1));
 
         assertThat(evaluate("a", rule).allowed()).isTrue();
         assertThat(evaluate("a", rule).allowed()).isFalse();
@@ -59,7 +59,7 @@ class InMemoryTokenBucketStoreTest {
 
     @Test
     void rejectsNonPositivePermits() {
-        Rule rule = Rule.tokenBucket(1, 1, Duration.ofSeconds(1));
+        Rule rule = Rule.tokenBucket("test", 1, 1, Duration.ofSeconds(1));
 
         assertThatThrownBy(() -> store.evaluate("a", rule, 0, 0)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> store.evaluate("a", rule, -1, 0)).isInstanceOf(IllegalArgumentException.class);

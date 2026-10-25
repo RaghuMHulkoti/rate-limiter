@@ -103,7 +103,7 @@ Suggested pacing: weekend 1 = M1–M2; weekend 2 = M3–M4; weekend 3 = M5 + sta
 - Tokens are `double` (fractional refill; matches Lua numbers). A rejection returns the same `BucketState` instance, so the store skips the write. `permits > capacity` is rejected with `retryAfterNanos = Decision.NEVER`.
 - `groupId`: `io.github.raghumhulkoti`.
 
-Open: two limiters sharing one store and one key share a bucket, because the store keys only by `key`. Decide: a name on `Rule` (store key = `rule.name() + ":" + key`) or a namespace prefix on `DefaultRateLimiter`.
+Decided (2026-10-25): two limiters sharing one store and one key used to share a bucket, because the store keyed only by `key`. Fix: `Rule` gets a validated `name` (non-blank, no `:`), and `DefaultRateLimiter` builds the store key as `rule.name() + ":" + key` before calling the store. Stores stay unaware of rule names, so Redis needs no extra work. Not yet implemented.
 
 ## Production features (for later milestones)
 

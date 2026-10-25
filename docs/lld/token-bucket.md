@@ -138,7 +138,7 @@ public final class Rule {
     // Constructor rejects: algorithm == null, capacity <= 0,
     // tokensPerRefill <= 0, refillIntervalNanos <= 0.
 
-    public static Rule tokenBucket(long capacity, long tokensPerRefill, Duration refillInterval);
+    public static Rule tokenBucket(String name, long capacity, long tokensPerRefill, Duration refillInterval);
 
     public Algorithm algorithm();
     public long capacity();
@@ -320,7 +320,7 @@ classDiagram
         -long tokensPerRefill
         -long refillIntervalNanos
         -Rule(Algorithm algorithm, long capacity, long tokensPerRefill, long refillIntervalNanos)
-        +tokenBucket(long capacity, long tokensPerRefill, Duration refillInterval)$ Rule
+        +tokenBucket(String name, long capacity, long tokensPerRefill, Duration refillInterval)$ Rule
         +algorithm() Algorithm
         +capacity() long
         +tokensPerRefill() long

@@ -12,7 +12,7 @@ class DefaultRateLimiterTest {
 
     private final FakeTimeSource clock = new FakeTimeSource();
     private final RateLimiter limiter = new DefaultRateLimiter(
-            Rule.tokenBucket(4, 1, Duration.ofSeconds(1)), new InMemoryTokenBucketStore(), clock);
+            Rule.tokenBucket("test", 4, 1, Duration.ofSeconds(1)), new InMemoryTokenBucketStore(), clock);
 
     @Test
     void animationStreamAllowsNineAndRejectsFour() {
@@ -46,5 +46,21 @@ class DefaultRateLimiterTest {
         assertThatThrownBy(() -> limiter.tryAcquire("user", 0)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> limiter.tryAcquire("user", -5)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> limiter.tryAcquire(null, 1)).isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void rulesWithDifferentNamesKeepSeparateBucketsForSameKey() {
+        InMemoryTokenBucketStore sharedStore = new InMemoryTokenBucketStore();
+        RateLimiter login = new DefaultRateLimiter(
+                Rule.tokenBucket("login", 3, 1, Duration.ofMinutes(1)), sharedStore, clock);
+        RateLimiter search = new DefaultRateLimiter(
+                Rule.tokenBucket("search", 100, 1, Duration.ofSeconds(1)), sharedStore, clock);
+
+        for (int i = 0; i < 3; i++) {
+            login.tryAcquire("user42", 1);
+        }
+
+        assertThat(login.tryAcquire("user42", 1).allowed()).isFalse();
+        assertThat(search.tryAcquire("user42", 1).allowed()).isTrue();
     }
 }

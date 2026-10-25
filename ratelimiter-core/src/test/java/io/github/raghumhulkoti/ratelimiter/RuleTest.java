@@ -10,7 +10,7 @@ class RuleTest {
 
     @Test
     void storesValuesInNanos() {
-        Rule rule = Rule.tokenBucket(100, 10, Duration.ofSeconds(1));
+        Rule rule = Rule.tokenBucket("test", 100, 10, Duration.ofSeconds(1));
 
         assertThat(rule.algorithm()).isEqualTo(Algorithm.TOKEN_BUCKET);
         assertThat(rule.capacity()).isEqualTo(100);
@@ -20,40 +20,59 @@ class RuleTest {
 
     @Test
     void rejectsNonPositiveCapacity() {
-        assertThatThrownBy(() -> Rule.tokenBucket(0, 1, Duration.ofSeconds(1)))
+        assertThatThrownBy(() -> Rule.tokenBucket("test", 0, 1, Duration.ofSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("capacity");
-        assertThatThrownBy(() -> Rule.tokenBucket(-1, 1, Duration.ofSeconds(1)))
+        assertThatThrownBy(() -> Rule.tokenBucket("test", -1, 1, Duration.ofSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     void rejectsNonPositiveRefillTokens() {
-        assertThatThrownBy(() -> Rule.tokenBucket(10, 0, Duration.ofSeconds(1)))
+        assertThatThrownBy(() -> Rule.tokenBucket("test", 10, 0, Duration.ofSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("tokensPerRefill");
     }
 
     @Test
     void rejectsNonPositiveRefillPeriod() {
-        assertThatThrownBy(() -> Rule.tokenBucket(10, 1, Duration.ZERO))
+        assertThatThrownBy(() -> Rule.tokenBucket("test", 10, 1, Duration.ZERO))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("refillInterval");
-        assertThatThrownBy(() -> Rule.tokenBucket(10, 1, Duration.ofSeconds(-1)))
+        assertThatThrownBy(() -> Rule.tokenBucket("test", 10, 1, Duration.ofSeconds(-1)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     void rejectsNullRefillPeriod() {
-        assertThatThrownBy(() -> Rule.tokenBucket(10, 1, null))
+        assertThatThrownBy(() -> Rule.tokenBucket("test", 10, 1, null))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     void equalByValue() {
-        assertThat(Rule.tokenBucket(4, 1, Duration.ofSeconds(1)))
-                .isEqualTo(Rule.tokenBucket(4, 1, Duration.ofMillis(1000)))
-                .hasSameHashCodeAs(Rule.tokenBucket(4, 1, Duration.ofMillis(1000)))
-                .isNotEqualTo(Rule.tokenBucket(5, 1, Duration.ofSeconds(1)));
+        assertThat(Rule.tokenBucket("test", 4, 1, Duration.ofSeconds(1)))
+                .isEqualTo(Rule.tokenBucket("test", 4, 1, Duration.ofMillis(1000)))
+                .hasSameHashCodeAs(Rule.tokenBucket("test", 4, 1, Duration.ofMillis(1000)))
+                .isNotEqualTo(Rule.tokenBucket("test", 5, 1, Duration.ofSeconds(1)));
+    }
+
+    @Test
+    void rejectsInvalidName() {
+        assertThatThrownBy(() -> Rule.tokenBucket(null, 10, 1, Duration.ofSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("name");
+        assertThatThrownBy(() -> Rule.tokenBucket("  ", 10, 1, Duration.ofSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("name");
+        assertThatThrownBy(() -> Rule.tokenBucket("a:b", 10, 1, Duration.ofSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("':'");
+    }
+
+    @Test
+    void differentNamesAreNotEqual() {
+        assertThat(Rule.tokenBucket("login", 4, 1, Duration.ofSeconds(1)))
+                .isNotEqualTo(Rule.tokenBucket("search", 4, 1, Duration.ofSeconds(1)));
     }
 }

@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test;
 class TokenBucketTest {
 
     private static final long SECOND = 1_000_000_000L;
-    private static final Rule FOUR_PER_SECOND_REFILL_ONE = Rule.tokenBucket(4, 1, Duration.ofSeconds(1));
+    private static final Rule FOUR_PER_SECOND_REFILL_ONE = Rule.tokenBucket("test", 4, 1, Duration.ofSeconds(1));
 
     @Test
     void newKeyStartsFull() {
@@ -31,7 +31,7 @@ class TokenBucketTest {
 
     @Test
     void refillsProportionallyToElapsedTime() {
-        Rule tenPerMinute = Rule.tokenBucket(10, 10, Duration.ofMinutes(1));
+        Rule tenPerMinute = Rule.tokenBucket("test", 10, 10, Duration.ofMinutes(1));
         BucketState empty = new BucketState(0, 0);
 
         assertThat(TokenBucket.compute(empty, tenPerMinute, 1, 5 * SECOND).decision().allowed()).isFalse();

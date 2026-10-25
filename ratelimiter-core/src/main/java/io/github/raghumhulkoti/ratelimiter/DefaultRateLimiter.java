@@ -24,6 +24,6 @@ public final class DefaultRateLimiter implements RateLimiter {
             throw new IllegalArgumentException("permits must be > 0, was " + permits);
         }
         long now = timeSource.currentTimeNanos();
-        return store.evaluate(key, rule, permits, now).toCompletableFuture().join();
+        return store.evaluate(rule.name() + ":" + key, rule, permits, now).toCompletableFuture().join();
     }
 }
